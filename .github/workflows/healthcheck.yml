@@ -1,0 +1,39 @@
+name: API Healthcheck
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # runs every 10 minutes (UTC)
+  workflow_dispatch:          # allow manual run
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Curl API and print body
+        env:
+          URL: ${{ secrets.HEALTHCHECK_URL }}  # optional; falls back below
+        run: |
+          set -euo pipefail
+          URL="${URL:-https://backend-psd.onrender.com/sites}"
+
+          echo "Requesting: $URL"
+          meta=$(curl -sS -H "Accept: application/json" \
+                 --max-time 20 --retry 3 --retry-delay 2 \
+                 -w "HTTP=%{http_code} TIME=%{time_total}\n" \
+                 -o resp.json "$URL")
+          echo "$meta"
+
+          echo "----- BEGIN RESPONSE BODY -----"
+          cat resp.json
+          echo
+          echo "----- END RESPONSE BODY -----"
+
+          code=$(printf "%s" "$meta" | awk -F"[ =]" '/HTTP=/{print $2}')
+          test "$code" -eq 200 || { echo "Non-200: $code"; exit 1; }
+
+      - name: Upload response as artifact (last run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-response
+          path: resp.json
+          retention-days: 7
